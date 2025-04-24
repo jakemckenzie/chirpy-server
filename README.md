@@ -3,7 +3,7 @@
 ## Project Overview
 documentation: todo
 ```
-project-root/
+chirpy-server/
 ├── cmd/
 │   └── server/
 │       └── main.go  # Entry point to start the server
