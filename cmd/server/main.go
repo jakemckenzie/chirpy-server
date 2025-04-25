@@ -23,6 +23,11 @@ func main() {
 		log.Fatal("Error loading .env file:", err)
 	}
 
+	platform := os.Getenv("PLATFORM")
+	if platform == "" {
+		log.Fatal("PLATFORM not set in .env")
+	}
+
 	dbURL := os.Getenv("DB_URL")
 	if dbURL == "" {
 		log.Fatal("DB_URL not set in .env")
@@ -42,6 +47,7 @@ func main() {
 		MetricsService: ms,
 		TextService:    ts,
 		DBQueries:      dbQueries,
+		Platform:       platform,
 	}
 
 	mux := http.NewServeMux()
@@ -56,7 +62,8 @@ func main() {
 	mux.HandleFunc("/api/healthz", handlers.ReadinessHandler(cfg))
 	mux.HandleFunc("/admin/metrics", handlers.AdminMetricsHandler(cfg))
 	mux.HandleFunc("/admin/reset", handlers.ResetHandler(cfg))
-	mux.HandleFunc("/api/validate_chirp", handlers.ValidateChirpHandler(cfg))
+	mux.HandleFunc("/api/chirps", handlers.ChirpsHandler(cfg))
+	mux.HandleFunc("/api/chirps/", handlers.ChirpsHandler(cfg))
 	mux.HandleFunc("/api/users", handlers.CreateUserHandler(cfg))
 
 	server := http.Server{
