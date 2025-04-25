@@ -4,12 +4,12 @@ import (
 	"fmt"
 	"net/http"
 
-	"github.com/jakemckenzie/chirpy-server/internal/services"
+	"github.com/jakemckenzie/chirpy-server/internal/config"
 )
 
-func AdminMetricsHandler(ms *services.MetricsService) http.HandlerFunc {
+func AdminMetricsHandler(cfg *config.APIConfig) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		hits := ms.GetHits()
+		hits := cfg.MetricsService.GetHits()
 		htmlTemplate := `
 <html>
     <body>
@@ -24,9 +24,19 @@ func AdminMetricsHandler(ms *services.MetricsService) http.HandlerFunc {
 	}
 }
 
-func ResetHandler(ms *services.MetricsService) http.HandlerFunc {
+func ResetHandler(cfg *config.APIConfig) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		ms.Reset()
+		if cfg.Platform != "dev" {
+			http.Error(w, "Forbidden", http.StatusForbidden)
+			return
+		}
+
+		err := cfg.DBQueries.DeleteAllUsers(r.Context())
+		if err != nil {
+			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+			return
+		}
+
 		w.WriteHeader(http.StatusOK)
 	}
 }

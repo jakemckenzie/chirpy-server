@@ -6,21 +6,35 @@ documentation: todo
 chirpy-server/
 ├── cmd/
 │   └── server/
-│       └── main.go  # Entry point to start the server
+│       └── main.go
 ├── internal/
-│   ├── handlers/    # HTTP handlers
+│   ├── config/
+│   │   └── config.go
+│   ├── database/
+│   │   ├── db.go
+│   │   ├── models.go
+│   │   └── users.sql.go
+│   ├── handlers/
 │   │   ├── healthz.go
 │   │   ├── admin.go
-│   │   └── chirp.go
-│   ├── services/    # Business logic
+│   │   ├── chirp.go
+│   │   └── users.go
+│   ├── services/
 │   │   ├── metrics.go
 │   │   └── text.go
-│   ├── middleware/  # Middleware logic
+│   ├── middleware/
 │   │   └── metrics.go
-│   └── utils/       # Utility functions
+│   └── utils/
 │       └── response.go
-├── docs/           # API documentation
+├── sql/
+│   ├── schema/
+│   │   └── 001_users.sql
+│   └── queries/
+│       └── users.sql
+├── docs/
 │   └── api.md
-├── go.mod          # Module definition
-└── go.sum          # Dependency checksums
+├── .env
+├── .gitignore
+├── go.mod
+└── go.sum
 ```
