@@ -3,6 +3,7 @@ package handlers
 import (
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"log"
 	"net/http"
 	"strings"
@@ -14,87 +15,97 @@ import (
 	"github.com/jakemckenzie/chirpy-server/internal/utils"
 )
 
+type ChirpID string
+type UserID string
+type ChirpBody string
+
+type ChirpCollection []ChirpResponse
+
 type ChirpResponse struct {
-	ID        string    `json:"id"`
+	ID        ChirpID   `json:"id"`
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
-	Body      string    `json:"body"`
-	UserID    string    `json:"user_id"`
+	Body      ChirpBody `json:"body"`
+	UserID    UserID    `json:"user_id"`
 }
 
 func ChirpsHandler(cfg *config.APIConfig) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		log.Printf("Entered ChirpsHandler - Method: %s, Path: %s", r.Method, r.URL.Path)
 		path := r.URL.Path
-		if path == "/api/chirps" || path == "/api/chirps/" {
-			switch r.Method {
-			case http.MethodGet:
+		switch r.Method {
+		case http.MethodGet:
+			if path == "/api/chirps" || path == "/api/chirps/" {
 				log.Println("Calling handleGetAllChirps")
 				handleGetAllChirps(w, r, cfg)
-			case http.MethodPost:
-				log.Println("Calling handleCreateChirp")
-				handleCreateChirp(w, r, cfg)
-			default:
-				log.Println("Method not allowed:", r.Method)
-				utils.RespondWithError(w, http.StatusMethodNotAllowed, "Method not allowed")
+				return
 			}
-			return
-		}
-
-		if strings.HasPrefix(path, "/api/chirps/") && len(path) > len("/api/chirps/") {
-			if r.Method == http.MethodGet {
+			if strings.HasPrefix(path, "/api/chirps/") && len(path) > len("/api/chirps/") {
 				log.Printf("Routing to handleGetChirpByID for path: %s", path)
 				handleGetChirpByID(w, r, cfg)
 				return
 			}
+			utils.RespondWithError(w, http.StatusNotFound, "Not found")
+		case http.MethodPost:
+			if path == "/api/chirps" || path == "/api/chirps/" {
+				log.Println("Calling handleCreateChirp")
+				handleCreateChirp(w, r, cfg)
+				return
+			}
 			utils.RespondWithError(w, http.StatusMethodNotAllowed, "Method not allowed")
-			return
+		default:
+			log.Println("Method not allowed:", r.Method)
+			utils.RespondWithError(w, http.StatusMethodNotAllowed, "Method not allowed")
 		}
-
-		utils.RespondWithError(w, http.StatusNotFound, "Not found")
 	}
 }
 
-func handleGetChirpByID(w http.ResponseWriter, r *http.Request, cfg *config.APIConfig) {
-	path := strings.TrimSuffix(r.URL.Path, "/")
-	pathParts := strings.Split(path, "/")
-
+func parseChirpIDFromPath(path string) (uuid.UUID, error) {
+	trimmedPath := strings.TrimSuffix(path, "/")
+	pathParts := strings.Split(trimmedPath, "/")
 	if len(pathParts) != 4 || pathParts[1] != "api" || pathParts[2] != "chirps" {
-		log.Printf("Invalid path format: %v", pathParts)
+		return uuid.UUID{}, errors.New("invalid path format")
+	}
+	chirpIDStr := pathParts[3]
+	chirpID, err := uuid.Parse(chirpIDStr)
+	if err != nil {
+		return uuid.UUID{}, err
+	}
+	return chirpID, nil
+}
+
+func handleGetChirpByID(w http.ResponseWriter, r *http.Request, cfg *config.APIConfig) {
+	chirpID, err := parseChirpIDFromPath(r.URL.Path)
+	if err != nil {
+		log.Printf("Invalid chirp ID from path: %s", r.URL.Path)
 		utils.RespondWithError(w, http.StatusBadRequest, "Invalid chirp ID")
 		return
 	}
 
-	chirpIDStr := pathParts[3]
-	log.Printf("Extracted chirpID: %s", chirpIDStr)
-	chirpID, err := uuid.Parse(chirpIDStr)
-	if err != nil {
-		utils.RespondWithError(w, http.StatusBadRequest, "Invalid chirp ID format")
+	dbChirp, err := cfg.DBQueries.GetChirpByID(r.Context(), chirpID)
+	if err == sql.ErrNoRows {
+		utils.RespondWithError(w, http.StatusNotFound, "Chirp not found")
 		return
 	}
-	
-	dbChirp, err := cfg.DBQueries.GetChirpByID(r.Context(), chirpID)
 	if err != nil {
-		if err == sql.ErrNoRows {
-			utils.RespondWithError(w, http.StatusNotFound, "Chirp not found")
-		} else {
-			log.Printf("Error retrieving chirp: %s", err)
-			utils.RespondWithError(w, http.StatusInternalServerError, "Failed to retrieve chirp")
-		}
+		log.Printf("Error retrieving chirp: %s", err)
+		utils.RespondWithError(w, http.StatusInternalServerError, "Failed to retrieve chirp")
 		return
 	}
 
 	responseChirp := ChirpResponse{
-		ID:        dbChirp.ID.String(),
+		ID:        ChirpID(dbChirp.ID.String()),
 		CreatedAt: dbChirp.CreatedAt,
 		UpdatedAt: dbChirp.UpdatedAt,
-		Body:      dbChirp.Body,
-		UserID:    dbChirp.UserID.String(),
+		Body:      ChirpBody(dbChirp.Body),
+		UserID:    UserID(dbChirp.UserID.String()),
 	}
 
-	w.Header().Set("Content-Type", "application/json")
+	header := w.Header()
+	header.Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(responseChirp)
+	encoder := json.NewEncoder(w)
+	encoder.Encode(responseChirp)
 }
 
 func handleGetAllChirps(w http.ResponseWriter, r *http.Request, cfg *config.APIConfig) {
@@ -104,28 +115,30 @@ func handleGetAllChirps(w http.ResponseWriter, r *http.Request, cfg *config.APIC
 		return
 	}
 
-	responseChirps := make([]ChirpResponse, len(dbChirps))
-	for i, chirp := range dbChirps {
-		responseChirps[i] = ChirpResponse{
-			ID:        chirp.ID.String(),
+	var collection ChirpCollection
+	for _, chirp := range dbChirps {
+		responseChirp := ChirpResponse{
+			ID:        ChirpID(chirp.ID.String()),
 			CreatedAt: chirp.CreatedAt,
 			UpdatedAt: chirp.UpdatedAt,
-			Body:      chirp.Body,
-			UserID:    chirp.UserID.String(),
+			Body:      ChirpBody(chirp.Body),
+			UserID:    UserID(chirp.UserID.String()),
 		}
+		collection = append(collection, responseChirp)
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(responseChirps)
+	header := w.Header()
+	header.Set("Content-Type", "application/json")
+	encoder := json.NewEncoder(w)
+	encoder.Encode(collection)
+}
+
+type chirpRequest struct {
+	Body   ChirpBody `json:"body"`
+	UserID UserID    `json:"user_id"`
 }
 
 func handleCreateChirp(w http.ResponseWriter, r *http.Request, cfg *config.APIConfig) {
-
-	type chirpRequest struct {
-		Body   string `json:"body"`
-		UserID string `json:"user_id"`
-	}
-
 	decoder := json.NewDecoder(r.Body)
 	var req chirpRequest
 	err := decoder.Decode(&req)
@@ -140,9 +153,9 @@ func handleCreateChirp(w http.ResponseWriter, r *http.Request, cfg *config.APICo
 		return
 	}
 
-	cleanedBody := cfg.TextService.CleanProfanity(req.Body)
+	cleanedBody := cfg.TextService.CleanProfanity(string(req.Body))
 
-	userID, err := uuid.Parse(req.UserID)
+	userID, err := uuid.Parse(string(req.UserID))
 	if err != nil {
 		utils.RespondWithError(w, http.StatusBadRequest, "Invalid user_id")
 		return
@@ -161,11 +174,11 @@ func handleCreateChirp(w http.ResponseWriter, r *http.Request, cfg *config.APICo
 	}
 
 	responseChirp := ChirpResponse{
-		ID:        dbChirp.ID.String(),
+		ID:        ChirpID(dbChirp.ID.String()),
 		CreatedAt: dbChirp.CreatedAt,
 		UpdatedAt: dbChirp.UpdatedAt,
-		Body:      dbChirp.Body,
-		UserID:    dbChirp.UserID.String(),
+		Body:      ChirpBody(dbChirp.Body),
+		UserID:    UserID(dbChirp.UserID.String()),
 	}
 
 	utils.RespondWithJSON(w, http.StatusCreated, responseChirp)
