@@ -6,7 +6,6 @@ documentation: todo
 chirpy-server/
 ├── assets/
 │   ├── logo.png
-│   └── logo.pngZone.Identifier
 ├── cmd/
 │   └── server/
 │       └── main.go
